@@ -1,6 +1,6 @@
 #pragma once
-#include "cia402.hpp"
-#include "config.hpp"
+#include "Ethercat/cia402.hpp"
+#include "Ethercat/config.hpp"
 
 #include <algorithm>
 #include <array>

@@ -1,4 +1,8 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 set -e
-cd "$(dirname "$0")/../build"
-sudo ./x5s_csp_opfirst_demo
+cd "$(dirname "$0")/.."
+mkdir -p build
+cd build
+cmake ..
+make -j
+sudo ./x5s_csp_console_direct

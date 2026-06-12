@@ -3,9 +3,15 @@ project(x5s_igh_csp_qt_direct LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-include_directories(include)
-include_directories(/opt/etherlab/include)
-include_directories(/usr/local/include)
+
+# Project headers are included from the include/ root, e.g.
+#   #include "Ethercat/ethercat_master.hpp"
+#   #include "QT/shared_state.hpp"
+include_directories(
+    ${PROJECT_SOURCE_DIR}/include
+    /opt/etherlab/include
+    /usr/local/include
+)
 
 link_directories(
     /opt/etherlab/lib
@@ -13,16 +19,16 @@ link_directories(
 )
 
 set(COMMON_SOURCES
-    src/pdo_config.cpp
-    src/cia402.cpp
-    src/x5s_axis.cpp
-    src/ethercat_master.cpp
+    src/Ethercat/pdo_config.cpp
+    src/Ethercat/cia402.cpp
+    src/Ethercat/x5s_axis.cpp
+    src/Ethercat/ethercat_master.cpp
     src/time_utils.cpp
 )
 
 # Console fallback target. Useful for testing direct-CSP logic without Qt UI.
 add_executable(x5s_csp_console_direct
-    src/main_console_direct.cpp
+    src/Main/main_console_direct.cpp
     src/control_worker.cpp
     ${COMMON_SOURCES}
 )
@@ -36,7 +42,7 @@ target_link_libraries(x5s_csp_console_direct
 find_package(Qt6 COMPONENTS Widgets QUIET)
 if(Qt6_FOUND)
     add_executable(x5s_csp_qt
-        src/main_qt.cpp
+        src/Main/main_qt.cpp
         src/control_worker.cpp
         ${COMMON_SOURCES}
     )
@@ -45,7 +51,7 @@ else()
     find_package(Qt5 COMPONENTS Widgets QUIET)
     if(Qt5_FOUND)
         add_executable(x5s_csp_qt
-            src/main_qt.cpp
+            src/Main/main_qt.cpp
             src/control_worker.cpp
             ${COMMON_SOURCES}
         )

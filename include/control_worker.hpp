@@ -1,4 +1,4 @@
 #pragma once
-#include "shared_state.hpp"
+#include "QT/shared_state.hpp"
 
 void runControlLoop(SharedState& shared_state);

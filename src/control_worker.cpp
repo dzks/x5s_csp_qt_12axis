@@ -1,9 +1,9 @@
 #include "control_worker.hpp"
-#include "config.hpp"
-#include "ethercat_master.hpp"
-#include "pdo_config.hpp"
+#include "Ethercat/config.hpp"
+#include "Ethercat/ethercat_master.hpp"
+#include "Ethercat/pdo_config.hpp"
 #include "time_utils.hpp"
-#include "x5s_axis.hpp"
+#include "Ethercat/x5s_axis.hpp"
 
 #include <algorithm>
 #include <array>

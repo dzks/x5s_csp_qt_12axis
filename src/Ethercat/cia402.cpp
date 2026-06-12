@@ -1,4 +1,4 @@
-#include "cia402.hpp"
+#include "Ethercat/cia402.hpp"
 
 CiA402State parseStatusWord(uint16_t sw) {
     if (sw & 0x0008) return CiA402State::Fault;

@@ -1,6 +1,6 @@
-#include "x5s_axis.hpp"
-#include "pdo_config.hpp"
-#include "cia402.hpp"
+#include "Ethercat/x5s_axis.hpp"
+#include "Ethercat/pdo_config.hpp"
+#include "Ethercat/cia402.hpp"
 
 #include <cstdlib>
 #include <ecrt.h>

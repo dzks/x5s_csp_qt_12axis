@@ -1,6 +1,6 @@
 #include "control_worker.hpp"
-#include "config.hpp"
-#include "shared_state.hpp"
+#include "Ethercat/config.hpp"
+#include "QT/shared_state.hpp"
 
 #include <QAbstractItemView>
 #include <QApplication>

@@ -1,6 +1,6 @@
-#include "ethercat_master.hpp"
-#include "config.hpp"
-#include "pdo_config.hpp"
+#include "Ethercat/ethercat_master.hpp"
+#include "Ethercat/config.hpp"
+#include "Ethercat/pdo_config.hpp"
 #include "time_utils.hpp"
 
 #include <iostream>

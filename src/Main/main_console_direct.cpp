@@ -1,6 +1,6 @@
-#include "config.hpp"
+#include "Ethercat/config.hpp"
 #include "control_worker.hpp"
-#include "shared_state.hpp"
+#include "QT/shared_state.hpp"
 
 #include <csignal>
 #include <cstdint>

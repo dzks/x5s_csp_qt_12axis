@@ -1,5 +1,5 @@
 #pragma once
-#include "config.hpp"
+#include "Ethercat/config.hpp"
 #include <array>
 #include <ecrt.h>
 

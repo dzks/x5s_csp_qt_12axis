@@ -1,5 +1,5 @@
-#include "pdo_config.hpp"
-#include "config.hpp"
+#include "Ethercat/pdo_config.hpp"
+#include "Ethercat/config.hpp"
 
 #include <cstddef>
 
