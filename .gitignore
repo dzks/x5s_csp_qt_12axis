@@ -1,0 +1,12 @@
+build/
+cmake-build-*/
+.vscode/
+*.user
+*.o
+*.obj
+*.exe
+*.dll
+*.lib
+*.pdb
+*.log
+*.tmp
