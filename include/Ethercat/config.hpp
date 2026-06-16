@@ -19,7 +19,7 @@ constexpr int kMaxAxisCount = 12;
 //
 // When adding more X5S drives later, first connect them in EtherCAT order, then
 // change only this value if all drives are the same model and use positions 0..N-1.
-constexpr int kActiveAxisCount = 12;
+constexpr int kActiveAxisCount = 6;
 static_assert(kActiveAxisCount >= 1, "At least one axis must be active.");
 static_assert(kActiveAxisCount <= kMaxAxisCount, "kActiveAxisCount exceeds kMaxAxisCount.");
 

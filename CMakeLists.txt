@@ -18,6 +18,7 @@ link_directories(
     /usr/local/lib
 )
 
+# 通信相关代码
 set(COMMON_SOURCES
     src/Ethercat/pdo_config.cpp
     src/Ethercat/cia402.cpp
@@ -26,16 +27,16 @@ set(COMMON_SOURCES
     src/time_utils.cpp
 )
 
-# Console fallback target. Useful for testing direct-CSP logic without Qt UI.
-add_executable(x5s_csp_console_direct
-    src/Main/main_console_direct.cpp
-    src/control_worker.cpp
-    ${COMMON_SOURCES}
+# 运动学相关代码
+set(KINEMATICS_SOURCES
+    src/Kinematics/parallel_kinematics.cpp
+    src/Kinematics/axis_unit_converter.cpp
 )
 
-target_link_libraries(x5s_csp_console_direct
-    ethercat
-    pthread
+# 电机相关代码
+set(MOTOR_SOURCES
+    src/Motor/motor_enable.cpp
+    src/Motor/motor_home.cpp
 )
 
 # Qt UI target. Supports Qt6 first, then Qt5.
@@ -60,3 +61,18 @@ else()
         message(WARNING "Qt5/Qt6 Widgets development files were not found. x5s_csp_qt will not be built. Install qtbase5-dev or Qt6 Widgets dev package.")
     endif()
 endif()
+
+add_executable(main_InitialPosition
+    src/Main/main_InitialPosition.cpp
+    ${KINEMATICS_SOURCES}
+    ${MOTOR_SOURCES}
+    ${COMMON_SOURCES}
+)
+target_link_libraries(main_InitialPosition ethercat pthread)
+
+add_executable(test
+    src/Main/test.cpp
+    ${KINEMATICS_SOURCES}
+    ${COMMON_SOURCES}
+)
+target_link_libraries(test ethercat pthread)
