@@ -25,7 +25,7 @@ axis_unit_converter lower_converter(lower_config);
 //构造函数
 axis_unit_converter::axis_unit_converter(const RackPinionAxisConfig& rackpinion):rackpinion_(rackpinion){}
 
-//位移转
+//位移转编码器偏差
 int64_t axis_unit_converter::DisplacementMmToCountDelta(double displacement_mm) const{
 
     constexpr double PI = 3.14159265358979323846;
@@ -45,3 +45,5 @@ int64_t axis_unit_converter::DisplacementMmToCountDelta(double displacement_mm) 
     return static_cast<int64_t>(std::llround(count_delta));
 
 }
+
+//编码器偏差转位移

@@ -35,8 +35,8 @@ set(KINEMATICS_SOURCES
 
 # 电机相关代码
 set(MOTOR_SOURCES
-    src/Motor/motor_enable.cpp
-    src/Motor/motor_home.cpp
+    src/Motor/Motor_Control.cpp
+    src/Motor/Parallel_Control.cpp
 )
 
 # Qt UI target. Supports Qt6 first, then Qt5.
@@ -74,5 +74,6 @@ add_executable(test
     src/Main/test.cpp
     ${KINEMATICS_SOURCES}
     ${COMMON_SOURCES}
+    ${MOTOR_SOURCES}
 )
 target_link_libraries(test ethercat pthread)
