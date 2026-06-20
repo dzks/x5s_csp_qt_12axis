@@ -43,8 +43,8 @@ set(MOTOR_SOURCES
 find_package(Qt6 COMPONENTS Widgets QUIET)
 if(Qt6_FOUND)
     add_executable(x5s_csp_qt
-        src/Main/main_qt.cpp
-        src/control_worker.cpp
+        src/QT/main_qt.cpp
+        src/QT/control_worker.cpp
         ${COMMON_SOURCES}
     )
     target_link_libraries(x5s_csp_qt Qt6::Widgets ethercat pthread)
@@ -52,8 +52,8 @@ else()
     find_package(Qt5 COMPONENTS Widgets QUIET)
     if(Qt5_FOUND)
         add_executable(x5s_csp_qt
-            src/Main/main_qt.cpp
-            src/control_worker.cpp
+            src/QT/main_qt.cpp
+            src/QT/control_worker.cpp
             ${COMMON_SOURCES}
         )
         target_link_libraries(x5s_csp_qt Qt5::Widgets ethercat pthread)

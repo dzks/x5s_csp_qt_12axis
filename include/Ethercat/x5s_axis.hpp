@@ -28,6 +28,9 @@ public:
     bool cspMoveStarted() const;
     bool cspMoveDone() const;
 
+    //设置CSP绝对位置接口
+    void setCspTargetPosition(int32_t target_position);
+
 private:
     uint8_t* domain_pd_{nullptr};
     const X5sPdoOffset* offset_{nullptr};

@@ -41,14 +41,19 @@ public:
 
     //保持所选轴位置
     void HoldAxesCurrentPosition(const std::vector<int>& axis_indices,int hold_cycles);
+
+    //读取所选轴的当前编码器位置
+    int32_t GetAxisEncoderCount(int axis_index);
     
 public:
-    //Motor_Home相关函数
+
     //读取EncoderCounts接口
     const std::array<int32_t, config::kMaxAxisCount>& HomeEncoderCounts() const;
 
     //读取Rho接口
     const std::array<double, config::kMaxAxisCount>& HomeRhoMm() const;
+
+
 
 private:
     EthercatMaster& master_;

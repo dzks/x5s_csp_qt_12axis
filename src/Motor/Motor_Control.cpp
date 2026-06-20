@@ -263,6 +263,22 @@ void MotorControl::HoldAxesCurrentPosition(
     }
 }
 
+//读取选定轴的当前编码器位置
+int32_t MotorControl::GetAxisEncoderCount(int axis_index)
+{
+    if (axis_index < 0 ||
+        axis_index >= static_cast<int>(axes_.size()))
+    {
+        std::cerr << "[Motor] Invalid axis index: "
+                  << axis_index << "\n";
+        return 0;
+    }
+
+    axes_[axis_index].read();
+
+    return axes_[axis_index].actualPosition();
+}
+
 
 const std::array<int32_t, config::kMaxAxisCount>& MotorControl::HomeEncoderCounts() const
 {
@@ -273,4 +289,5 @@ const std::array<double, config::kMaxAxisCount>& MotorControl::HomeRhoMm() const
 {
     return home_rho_mm_;
 }
+
 

@@ -1,4 +1,4 @@
-#include "control_worker.hpp"
+#include "QT/control_worker.hpp"
 #include "Ethercat/config.hpp"
 #include "QT/shared_state.hpp"
 

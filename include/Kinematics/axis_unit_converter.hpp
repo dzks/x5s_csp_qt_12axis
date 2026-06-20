@@ -13,7 +13,8 @@ public:
     };
     axis_unit_converter(const RackPinionAxisConfig& rackpinion);
     int64_t DisplacementMmToCountDelta(double displacement) const;
-
+    double CountDeltaToDisplacementMm(int64_t count_delta) const;
+    
 private:
     RackPinionAxisConfig rackpinion_;
 };

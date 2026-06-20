@@ -80,6 +80,12 @@ void X5sAxis::updateCspTarget(int32_t step_counts_per_cycle) {
     }
 }
 
+//新增 CSP绝对位置设置接口
+void X5sAxis::setCspTargetPosition(int32_t target_position){
+
+    target_position_ = target_position;
+}
+
 void X5sAxis::stopHold() {
     holdCurrentPosition();
 }

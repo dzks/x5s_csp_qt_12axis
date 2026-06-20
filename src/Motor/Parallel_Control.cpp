@@ -3,9 +3,11 @@
 #include "Kinematics/axis_unit_converter.hpp"
 #include "Motor/Motor_Control.hpp"
 #include "time_utils.hpp"
+#include "Ethercat/config.hpp"
 
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <stdexcept>
 #include <chrono>
@@ -73,7 +75,7 @@ std::array<int32_t, 3> ParallelControl::BuildTargetCountsFromPose(const ThreePRR
 
     // 3. 检查 rho 是否在有效范围内
     constexpr double kRhoMinMm = 0.0;
-    constexpr double kRhoMaxMm = 1290.0;
+    constexpr double kRhoMaxMm = 1360.0;
 
     for (int i = 0; i < 3; ++i)
     {
@@ -130,212 +132,353 @@ std::array<int32_t, 3> ParallelControl::BuildTargetCountsFromPose(const ThreePRR
     return target_counts;
 }
 
+//获取当前某并联平台的3个编码器值
+ParallelControl::ParallelEncoder ParallelControl::GetCurrentEncoder()
+{
+    std::array<int, 3> axis_indices = SelectAxisIndices();
+
+    parallel_encoder_.axis1_encoder = motor_control_.GetAxisEncoderCount(axis_indices[0]);
+
+    parallel_encoder_.axis2_encoder = motor_control_.GetAxisEncoderCount(axis_indices[1]);
+
+    parallel_encoder_.axis3_encoder = motor_control_.GetAxisEncoderCount(axis_indices[2]);
+
+    return parallel_encoder_;
+}
+
+//获取当前某并联平台位姿
+ThreePRR::TargetPose ParallelControl::GetCurrentPose()
+{
+    GetCurrentEncoder();
+
+    ThreePRR& mechanism = SelectMechanism();
+
+    std::array<int, 3> axis_indices = SelectAxisIndices();
+
+    const axis_unit_converter& converter = SelectConverter();
+
+    const auto& home_encoder_counts = motor_control_.HomeEncoderCounts();
+
+    const auto& home_rho_mm = motor_control_.HomeRhoMm();
+
+    std::array<int32_t, 3> current_encoder_counts{
+        parallel_encoder_.axis1_encoder,
+        parallel_encoder_.axis2_encoder,
+        parallel_encoder_.axis3_encoder
+    };
+
+    std::array<double, 3> current_rho_mm{};
+
+    for (int i = 0; i < 3; ++i)
+    {
+        int axis_index = axis_indices[i];
+
+        int64_t count_delta =
+            static_cast<int64_t>(current_encoder_counts[i])
+            - static_cast<int64_t>(home_encoder_counts[axis_index]);
+
+        double displacement_mm = converter.CountDeltaToDisplacementMm(count_delta);
+
+        current_rho_mm[i] = home_rho_mm[axis_index] + displacement_mm;
+
+        std::cout << "[Current Pose] axis " << axis_index
+                  << " encoder = " << current_encoder_counts[i]
+                  << " displacement = " << displacement_mm
+                  << " mm"
+                  << " rho = " << current_rho_mm[i]
+                  << " mm\n";
+    }
+
+    ThreePRR::Pose fk_pose =
+        mechanism.FK(
+            current_rho_mm[0],
+            current_rho_mm[1],
+            current_rho_mm[2]
+        );
+
+    ThreePRR::TargetPose current_pose{
+        fk_pose.xQ,
+        fk_pose.yQ,
+        fk_pose.phi
+    };
+
+    std::cout << "[Current Pose] xQ = " << current_pose.xQ
+              << " mm, yQ = " << current_pose.yQ
+              << " mm, phi = " << current_pose.phi
+              << " rad\n";
+
+    return current_pose;
+}
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-bool ParallelControl::MoveParallelToTargetPose(
+bool ParallelControl::MoveJAbsolute(
     const ThreePRR::TargetPose& target,
     int32_t base_step_counts_per_cycle,
-    int timeout_cycles
+    int timeout_cycles,
+    int32_t position_tolerance_counts,
+    int settle_cycles
 )
 {
     if (base_step_counts_per_cycle <= 0)
     {
-        std::cerr << "[Parallel Move] base_step_counts_per_cycle must be > 0.\n";
+        std::cerr << "[MoveJ] base_step_counts_per_cycle must be > 0.\n";
         return false;
     }
 
-    std::array<int, 3> axis_indices = SelectAxisIndices();
+    // 1. 目标位姿 -> 目标绝对 encoder counts
+    std::array<int32_t, 3> target_counts = BuildTargetCountsFromPose(target);
 
-    std::array<int32_t, 3> target_counts =
-        BuildTargetCountsFromPose(target);
+    // 2. 读取当前 encoder counts
+    ParallelEncoder current_encoder = GetCurrentEncoder();
 
-    EthercatMaster& master = motor_control_.Master();
+    std::array<int32_t, 3> start_counts{
+        current_encoder.axis1_encoder,
+        current_encoder.axis2_encoder,
+        current_encoder.axis3_encoder
+    };
 
-    std::array<int32_t, 3> start_counts{};
-    std::array<int64_t, 3> move_distance_counts{};
-
-    master.setApplicationTime(getMonotonicTimeNs());
-    master.receive();
-    master.checkState();
-
-    int64_t max_abs_distance = 0;
+    // 3. 计算最大移动距离
+    std::array<int64_t, 3> delta_counts{};
+    int64_t max_abs_delta = 0;
 
     for (int i = 0; i < 3; ++i)
     {
-        int axis_index = axis_indices[i];
+        delta_counts[i] = static_cast<int64_t>(target_counts[i]) - static_cast<int64_t>(start_counts[i]);
 
-        X5sAxis& axis = motor_control_.Axis(axis_index);
+        int64_t abs_delta = std::llabs(delta_counts[i]);
 
-        axis.read();
-        axis.setModeOfOperation(config::kModeCSP);
-
-        if (!master.axisOperational(axis_index) ||
-            !axis.operationEnabled())
+        if (abs_delta > max_abs_delta)
         {
-            std::cerr << "[Parallel Move] axis " << axis_index
-                      << " is not Operation Enabled before move.\n";
-            axis.holdCurrentPosition();
-            axis.write();
-            master.send();
-            return false;
+            max_abs_delta = abs_delta;
         }
 
-        start_counts[i] = axis.actualPosition();
-
-        move_distance_counts[i] =
-            static_cast<int64_t>(target_counts[i])
-            - static_cast<int64_t>(start_counts[i]);
-
-        int64_t abs_distance = std::llabs(move_distance_counts[i]);
-
-        if (abs_distance > max_abs_distance)
-        {
-            max_abs_distance = abs_distance;
-        }
-
-        std::cout << "[Parallel Move] axis " << axis_index
+        std::cout << "[MoveJ] axis " << SelectAxisIndices()[i]
                   << " start = " << start_counts[i]
                   << " target = " << target_counts[i]
-                  << " distance = " << move_distance_counts[i]
+                  << " delta = " << delta_counts[i]
                   << "\n";
     }
 
-    if (max_abs_distance == 0)
+    if (max_abs_delta == 0)
     {
-        std::cout << "[Parallel Move] Already at target pose.\n";
+        std::cout << "[MoveJ] Already at target.\n";
         return true;
     }
 
-    int64_t planned_move_cycles =
-        (max_abs_distance + base_step_counts_per_cycle - 1)
-        / base_step_counts_per_cycle;
+    // 4. 根据最长轴计算轨迹周期数
+    int64_t trajectory_cycles =(max_abs_delta + base_step_counts_per_cycle - 1) / base_step_counts_per_cycle;
 
-    if (planned_move_cycles < 1)
+    if (trajectory_cycles < 1)
     {
-        planned_move_cycles = 1;
+        trajectory_cycles = 1;
     }
 
-    std::array<int32_t, 3> step_counts_per_cycle{};
-
-    for (int i = 0; i < 3; ++i)
+    if (trajectory_cycles > timeout_cycles)
     {
-        int64_t abs_distance = std::llabs(move_distance_counts[i]);
+        std::cerr << "[MoveJ] trajectory cycles = "
+                  << trajectory_cycles
+                  << " exceeds timeout_cycles = "
+                  << timeout_cycles
+                  << "\n";
+        return false;
+    }
 
-        if (abs_distance == 0)
+    // 5. 生成等间距绝对 encoder trajectory
+    CountTrajectory trajectory;
+    trajectory.reserve(static_cast<std::size_t>(trajectory_cycles));
+
+    for (int64_t cycle = 1; cycle <= trajectory_cycles; ++cycle)
+    {
+        std::array<int32_t, 3> point{};
+
+        for (int i = 0; i < 3; ++i)
         {
-            step_counts_per_cycle[i] = 1;
-        }
-        else
-        {
-            int64_t step =
-                (abs_distance + planned_move_cycles - 1)
-                / planned_move_cycles;
+            int64_t command_count =
+                static_cast<int64_t>(start_counts[i])
+                + delta_counts[i] * cycle / trajectory_cycles;
 
-            if (step < 1)
-            {
-                step = 1;
-            }
-
-            step_counts_per_cycle[i] =
-                static_cast<int32_t>(step);
+            point[i] =
+                static_cast<int32_t>(command_count);
         }
 
-        std::cout << "[Parallel Move] axis " << axis_indices[i]
-                  << " step = " << step_counts_per_cycle[i]
-                  << " counts/cycle"
-                  <<"\n";
+        trajectory.push_back(point);
     }
 
-    for (int i = 0; i < 3; ++i)
+    // 强制最后一个点等于目标，避免整数除法误差
+    trajectory.back() = target_counts;
+
+    std::cout << "[MoveJ] trajectory cycles = "
+              << trajectory.size() << "\n";
+
+    // 6. 执行轨迹
+    return ExecuteCountTrajectory(
+        trajectory,
+        position_tolerance_counts,
+        settle_cycles
+    );
+}
+
+
+
+
+
+
+
+
+
+
+
+//电机轨迹执行层（只适合单并联调试）
+bool ParallelControl::ExecuteCountTrajectory(
+    const CountTrajectory& trajectory,
+    int32_t position_tolerance_counts,  //最终位置运行误差
+    int settle_cycles   //保持target等待的周期数
+)
+{
+    if (trajectory.empty())
     {
-        int axis_index = axis_indices[i];
-
-        motor_control_.Axis(axis_index).startCspMoveTo(
-            target_counts[i]
-        );
+        std::cerr << "[Trajectory] trajectory is empty.\n";
+        return false;
     }
+
+    if (position_tolerance_counts < 0)
+    {
+        std::cerr << "[Trajectory] position tolerance must be >= 0.\n";
+        return false;
+    }
+
+    if (settle_cycles < 0)
+    {
+        std::cerr << "[Trajectory] settle_cycles must be >= 0.\n";
+        return false;
+    }
+
+    const std::array<int, 3> axis_indices = SelectAxisIndices();
+
+    EthercatMaster& master = motor_control_.Master();
 
     auto next_time = std::chrono::steady_clock::now();
 
-    for (int cycle = 0; cycle < timeout_cycles; ++cycle)
+    // ---------- 轨迹执行阶段 ----------
+    for (std::size_t cycle = 0;cycle < trajectory.size();++cycle)
     {
         next_time += std::chrono::nanoseconds(config::kCycleTimeNs);
 
         master.setApplicationTime(getMonotonicTimeNs());
+
         master.receive();
         master.checkState();
 
-        bool all_done = true;
+        bool axes_ready = true;
 
         for (int i = 0; i < 3; ++i)
         {
-            int axis_index = axis_indices[i];
+            const int axis_index = axis_indices[i];
 
             X5sAxis& axis = motor_control_.Axis(axis_index);
 
             axis.read();
             axis.setModeOfOperation(config::kModeCSP);
 
-            if (!master.axisOperational(axis_index) ||
-                !axis.operationEnabled())
+            if (!master.axisOperational(axis_index) || !axis.operationEnabled())
             {
-                std::cerr << "[Parallel Move] axis " << axis_index
-                          << " lost Operation Enabled during move.\n";
+                std::cerr
+                    << "[Trajectory] axis "
+                    << axis_index
+                    << " is not Operation Enabled.\n";
+
+                axes_ready = false;
+            }
+        }
+
+        if (!axes_ready)
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                const int axis_index = axis_indices[i];
+
+                X5sAxis& axis = motor_control_.Axis(axis_index);
 
                 axis.holdCurrentPosition();
                 axis.write();
-                master.send();
-
-                return false;
             }
 
-            if (!axis.cspMoveDone())
+            motor_control_.SyncClocks();
+            master.send();
+
+            return false;
+        }
+
+        for (int i = 0; i < 3; ++i)
+        {
+            const int axis_index = axis_indices[i];
+            X5sAxis& axis = motor_control_.Axis(axis_index);
+            axis.setCspTargetPosition( trajectory[cycle][i] );
+            axis.write();
+        }
+
+        motor_control_.SyncClocks();
+        master.send();
+
+        std::this_thread::sleep_until(
+            next_time
+        );
+    }
+
+    // ---------- 到终点后继续保持最终目标 ----------
+    const std::array<int32_t, 3>& final_targets =
+        trajectory.back();
+
+    for (int cycle = 0;cycle < settle_cycles;++cycle)
+    {
+        next_time += std::chrono::nanoseconds( config::kCycleTimeNs);
+
+        master.setApplicationTime(getMonotonicTimeNs());
+
+        master.receive();
+        master.checkState();
+
+        bool axes_ready = true;
+        bool all_reached = true;
+
+        for (int i = 0; i < 3; ++i)
+        {
+            const int axis_index = axis_indices[i];
+
+            X5sAxis& axis = motor_control_.Axis(axis_index);
+
+            axis.read();
+            axis.setModeOfOperation(config::kModeCSP);
+
+            if (!master.axisOperational(axis_index) || !axis.operationEnabled())
             {
-                axis.updateCspTarget(step_counts_per_cycle[i]);
-                all_done = false;
+                std::cerr
+                    << "[Trajectory] axis "
+                    << axis_index
+                    << " lost Operation Enabled.\n";
+
+                axes_ready = false;
             }
-            else
+
+            const int64_t position_error =
+                std::llabs(
+                    static_cast<int64_t>(
+                        axis.actualPosition()
+                    )
+                    - static_cast<int64_t>(
+                        final_targets[i]
+                    )
+                );
+
+            if (position_error >
+                position_tolerance_counts)
             {
-                axis.holdCurrentPosition();
+                all_reached = false;
             }
+
+            axis.setCspTargetPosition(
+                final_targets[i]
+            );
 
             axis.write();
         }
@@ -343,15 +486,60 @@ bool ParallelControl::MoveParallelToTargetPose(
         motor_control_.SyncClocks();
         master.send();
 
-        if (all_done)
+        if (!axes_ready)
         {
-            std::cout << "[Parallel Move] Target pose reached.\n";
+            return false;
+        }
+
+        if (all_reached)
+        {
+            std::cout
+                << "[Trajectory] final target reached.\n";
+
             return true;
         }
 
-        std::this_thread::sleep_until(next_time);
+        std::this_thread::sleep_until(
+            next_time
+        );
     }
 
-    std::cerr << "[Parallel Move] MoveParallelToTargetPose timeout.\n";
+    std::cerr
+        << "[Trajectory] final target was not reached "
+        << "within settle_cycles.\n";
+
     return false;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

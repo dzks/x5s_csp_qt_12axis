@@ -1,4 +1,4 @@
-#include "control_worker.hpp"
+#include "QT/control_worker.hpp"
 #include "Ethercat/config.hpp"
 #include "Ethercat/ethercat_master.hpp"
 #include "Ethercat/pdo_config.hpp"

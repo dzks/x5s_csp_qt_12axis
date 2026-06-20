@@ -37,76 +37,51 @@ int main(int argc, char* argv[]){
         );
     }
 
-    // 3. 创建控制对象
+    //创建所有电机控制对象
     MotorControl motor_control(master, axes);
+    motor_control.WaitAllAxesOperationEnabled(100,60000);
+    motor_control.HoldAllAxesCurrentPosition(1000);
+    
+    //创建并联机构对象
+    ParallelControl upper_left_parallel(
+        motor_control,
+        ParallelSide::UpperLeft
+    );
 
     ParallelControl upper_right_parallel(
         motor_control,
         ParallelSide::UpperRight
     );
 
-    // 4. 只等待第一个并联机构的 3 个轴使能
-    std::vector<int> upper_right_axes{
-        3,4,5
-    };
-
-    bool ready = motor_control.WaitAxesOperationEnabled(
-        upper_right_axes,
-        config::kWaitCyclesAfterOperationEnabled,
-        60000
+    ParallelControl lower_left_parallel(
+        motor_control,
+        ParallelSide::LowerLeft
     );
 
-    if (!ready)
-    {
-        std::cerr << "[Test] UpperLeft axes enable failed.\n";
-        return 1;
-    }
-
-    std::cout << "[Test] UpperLeft axes enabled.\n";
-
-    // 5. 保持当前位置一小段时间
-    motor_control.HoldAxesCurrentPosition(
-        upper_right_axes,
-        1000
+    ParallelControl lower_right_parallel(
+        motor_control,
+        ParallelSide::LowerRight
     );
 
-    
-    ThreePRR::TargetPose safe_pose;
-    safe_pose.xQ = 1145.0;
-    safe_pose.yQ = 140.0;
-    safe_pose.phi = 0.0;
+    // auto upperleft_encoder =
+    //     upper_left_parallel.GetCurrentPose();
 
-    std::cout << "[Test] Move UpperLeft to safe pose.\n";
-    std::cout << "[Test] target xQ = " << safe_pose.xQ
-              << ", yQ = " << safe_pose.yQ
-              << ", phi = " << safe_pose.phi
-              << "\n";
-    upper_right_parallel.BuildTargetCountsFromPose(safe_pose);
+    // auto upperright_encoder =
+    //     upper_right_parallel.GetCurrentPose();
 
+    // auto lowerleft_encoder =
+    //     lower_left_parallel.GetCurrentPose();
 
-    // 8. 执行第一个并联机构三轴同步运动
-    bool move_ok = upper_right_parallel.MoveParallelToTargetPose(
-        safe_pose,
-        500,      // base_step_counts_per_cycle，第一次建议小一点
-        6000000
-    );
+    // auto lowerright_encoder =
+    //     lower_right_parallel.GetCurrentPose();
 
-    if (!move_ok)
-    {
-        std::cerr << "[Test] UpperLeft move failed.\n";
-        return 1;
-    }
+    ThreePRR::TargetPose target;
+    target.xQ = 500;
+    target.yQ = 170;
+    target.phi = 0 ;
 
-    std::cout << "[Test] UpperLeft move success.\n";
+    bool move_done = upper_left_parallel.MoveJAbsolute(target,200,60000);
 
-    // 9. 运动结束后保持当前位置
-    motor_control.HoldAxesCurrentPosition(
-        upper_right_axes,
-        1000
-    );
-
-    std::cout << "[Test] Finished.\n";
-
-    return 0;
-
+    auto upperleft_encoder =
+        upper_left_parallel.GetCurrentPose();
 }
