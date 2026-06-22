@@ -4,6 +4,7 @@
 #include "Motor/Motor_Control.hpp"
 #include "time_utils.hpp"
 #include "Ethercat/config.hpp"
+#include "Trajectory/count_trajectory_generator.hpp"
 
 #include <array>
 #include <cstdint>
@@ -69,10 +70,6 @@ std::array<int32_t, 3> ParallelControl::BuildTargetCountsFromPose(const ThreePRR
         joint_position.rho3
     };
 
-    std::cout << target_rho_mm[1];
-    std::cout << target_rho_mm[2];
-    std::cout << target_rho_mm[3];
-
     // 3. 检查 rho 是否在有效范围内
     constexpr double kRhoMinMm = 0.0;
     constexpr double kRhoMaxMm = 1360.0;
@@ -89,22 +86,33 @@ std::array<int32_t, 3> ParallelControl::BuildTargetCountsFromPose(const ThreePRR
         }
     }
 
-    // 4. 检查当前并联机构的 3 个 rho 是否从小到大
-    if (!(target_rho_mm[0] < target_rho_mm[1] &&
-          target_rho_mm[1] < target_rho_mm[2]))
+    // 4. 检查当前并联机构的 3 个 rho 是否满足最小机械间距
+    constexpr double kMinRhoGapMm = config::kMinSliderCenterGapMm;
+    double gap12 = target_rho_mm[1] - target_rho_mm[0];
+    double gap23 = target_rho_mm[2] - target_rho_mm[1];
+
+    if (gap12 < kMinRhoGapMm || gap23 < kMinRhoGapMm)
     {
-        std::cerr << "[Parallel Error] IK position failed. "
-                  << "rho order is invalid for axes {"
-                  << axis_indices[0] << ", "
-                  << axis_indices[1] << ", "
-                  << axis_indices[2] << "}.\n";
+        std::cerr
+            << "[Parallel Error] IK position failed. "
+            << "rho gap is too small for axes {"
+            << axis_indices[0] << ", "
+            << axis_indices[1] << ", "
+            << axis_indices[2] << "}.\n";
 
-        std::cerr << "rho values: "
-                  << target_rho_mm[0] << ", "
-                  << target_rho_mm[1] << ", "
-                  << target_rho_mm[2] << "\n";
+        std::cerr
+            << "rho values: "
+            << target_rho_mm[0] << ", "
+            << target_rho_mm[1] << ", "
+            << target_rho_mm[2] << "\n";
 
-        throw std::runtime_error("ParallelControl::BuildTargetCountsFromPose failed: rho order invalid");
+        std::cerr
+            << "rho gaps: "<< "rho2-rho1 = "<< gap12<< " mm, "
+            << "rho3-rho2 = "<< gap23<< " mm, "<< "required minimum = "<< kMinRhoGapMm<< " mm\n";
+
+        throw std::runtime_error(
+            "ParallelControl::BuildTargetCountsFromPose failed: rho gap too small"
+        );
     }
 
     // 5. 获取 home 信息
@@ -124,9 +132,6 @@ std::array<int32_t, 3> ParallelControl::BuildTargetCountsFromPose(const ThreePRR
 
         target_counts[i] = home_encoder_counts[axis_index] + static_cast<int32_t>(count_delta);
 
-        std::cout << "[Parallel] axis " << axis_index
-                  << " target_rho = " << target_rho_mm[i]
-                  << " displacement = " << displacement_mm;
     }
 
     return target_counts;
@@ -182,9 +187,6 @@ ThreePRR::TargetPose ParallelControl::GetCurrentPose()
         current_rho_mm[i] = home_rho_mm[axis_index] + displacement_mm;
 
         std::cout << "[Current Pose] axis " << axis_index
-                  << " encoder = " << current_encoder_counts[i]
-                  << " displacement = " << displacement_mm
-                  << " mm"
                   << " rho = " << current_rho_mm[i]
                   << " mm\n";
     }
@@ -210,106 +212,74 @@ ThreePRR::TargetPose ParallelControl::GetCurrentPose()
     return current_pose;
 }
 
+//获取当前rho值
+std::array<double, 3> ParallelControl::GetCurrentRhoMm()
+{
+    GetCurrentEncoder();
 
-bool ParallelControl::MoveJAbsolute(
+    std::array<int, 3> axis_indices =SelectAxisIndices();
+
+    const auto& home_encoder_counts =motor_control_.HomeEncoderCounts();
+
+    const auto& home_rho_mm =motor_control_.HomeRhoMm();
+
+    const axis_unit_converter& converter =SelectConverter();
+
+    std::array<double, 3> current_rho_mm{};
+
+    std::array<int32_t, 3> actual_counts{
+        parallel_encoder_.axis1_encoder,
+        parallel_encoder_.axis2_encoder,
+        parallel_encoder_.axis3_encoder
+    };
+
+    for (int i = 0; i < 3; ++i)
+    {
+        int axis_index =axis_indices[i];
+
+        int64_t count_delta =static_cast<int64_t>(actual_counts[i])
+            - static_cast<int64_t>(home_encoder_counts[axis_index]);
+
+        double displacement_mm =converter.CountDeltaToDisplacementMm(count_delta);
+
+        current_rho_mm[i] =home_rho_mm[axis_index]+ displacement_mm;
+    }
+
+    return current_rho_mm;
+}
+
+//MOVEJ-固定步长
+bool ParallelControl::MoveJAbsoluteFixStep(
     const ThreePRR::TargetPose& target,
     int32_t base_step_counts_per_cycle,
-    int timeout_cycles,
     int32_t position_tolerance_counts,
     int settle_cycles
 )
 {
-    if (base_step_counts_per_cycle <= 0)
-    {
-        std::cerr << "[MoveJ] base_step_counts_per_cycle must be > 0.\n";
-        return false;
-    }
 
     // 1. 目标位姿 -> 目标绝对 encoder counts
-    std::array<int32_t, 3> target_counts = BuildTargetCountsFromPose(target);
+    trajectory::AxisCount3 target_counts = BuildTargetCountsFromPose(target);
 
     // 2. 读取当前 encoder counts
     ParallelEncoder current_encoder = GetCurrentEncoder();
 
-    std::array<int32_t, 3> start_counts{
+    trajectory::AxisCount3 start_counts{
         current_encoder.axis1_encoder,
         current_encoder.axis2_encoder,
         current_encoder.axis3_encoder
     };
 
-    // 3. 计算最大移动距离
-    std::array<int64_t, 3> delta_counts{};
-    int64_t max_abs_delta = 0;
-
-    for (int i = 0; i < 3; ++i)
+    trajectory::FixedStepTrajectoryOptions options;
+    options.base_step_counts_per_cycle = base_step_counts_per_cycle;
+    trajectory::CountTrajectory trajectory =
+                 trajectory::CountTrajectoryGenerator::GenerateFixedStepJoint(start_counts,target_counts,options);
+    if (trajectory.empty())
     {
-        delta_counts[i] = static_cast<int64_t>(target_counts[i]) - static_cast<int64_t>(start_counts[i]);
+        std::cerr
+            << "[MoveJ] Failed to generate trajectory.\n";
 
-        int64_t abs_delta = std::llabs(delta_counts[i]);
-
-        if (abs_delta > max_abs_delta)
-        {
-            max_abs_delta = abs_delta;
-        }
-
-        std::cout << "[MoveJ] axis " << SelectAxisIndices()[i]
-                  << " start = " << start_counts[i]
-                  << " target = " << target_counts[i]
-                  << " delta = " << delta_counts[i]
-                  << "\n";
-    }
-
-    if (max_abs_delta == 0)
-    {
-        std::cout << "[MoveJ] Already at target.\n";
-        return true;
-    }
-
-    // 4. 根据最长轴计算轨迹周期数
-    int64_t trajectory_cycles =(max_abs_delta + base_step_counts_per_cycle - 1) / base_step_counts_per_cycle;
-
-    if (trajectory_cycles < 1)
-    {
-        trajectory_cycles = 1;
-    }
-
-    if (trajectory_cycles > timeout_cycles)
-    {
-        std::cerr << "[MoveJ] trajectory cycles = "
-                  << trajectory_cycles
-                  << " exceeds timeout_cycles = "
-                  << timeout_cycles
-                  << "\n";
         return false;
     }
-
-    // 5. 生成等间距绝对 encoder trajectory
-    CountTrajectory trajectory;
-    trajectory.reserve(static_cast<std::size_t>(trajectory_cycles));
-
-    for (int64_t cycle = 1; cycle <= trajectory_cycles; ++cycle)
-    {
-        std::array<int32_t, 3> point{};
-
-        for (int i = 0; i < 3; ++i)
-        {
-            int64_t command_count =
-                static_cast<int64_t>(start_counts[i])
-                + delta_counts[i] * cycle / trajectory_cycles;
-
-            point[i] =
-                static_cast<int32_t>(command_count);
-        }
-
-        trajectory.push_back(point);
-    }
-
-    // 强制最后一个点等于目标，避免整数除法误差
-    trajectory.back() = target_counts;
-
-    std::cout << "[MoveJ] trajectory cycles = "
-              << trajectory.size() << "\n";
-
     // 6. 执行轨迹
     return ExecuteCountTrajectory(
         trajectory,
@@ -318,14 +288,174 @@ bool ParallelControl::MoveJAbsolute(
     );
 }
 
+//MOVEJ-五次多项式
+bool ParallelControl::MoveJAbsoluteQuintic(
+    const ThreePRR::TargetPose& target,
+    int64_t trajectory_cycles,  //五次多项式轨迹总周期数，1000就是1s
+    int32_t position_tolerance_counts,
+    int settle_cycles
+)
+{
+    if (trajectory_cycles <= 0)
+    {
+        std::cerr
+            << "[MoveJ Quintic] trajectory_cycles must be > 0.\n";
 
+        return false;
+    }
 
+    // 1. 目标位姿 -> 目标绝对 encoder counts
+    trajectory::AxisCount3 target_counts = BuildTargetCountsFromPose(target);
 
+    // 2. 读取当前 encoder counts
+    ParallelEncoder current_encoder = GetCurrentEncoder();
 
+    trajectory::AxisCount3 start_counts{
+        current_encoder.axis1_encoder,
+        current_encoder.axis2_encoder,
+        current_encoder.axis3_encoder
+    };
 
+    // 3. 设置五次多项式轨迹参数
+    trajectory::QuinticTrajectoryOptions options;
+    options.trajectory_cycles = trajectory_cycles;
 
+    // 4. 生成五次多项式关节空间轨迹
+    trajectory::CountTrajectory trajectory =
+        trajectory::CountTrajectoryGenerator::GenerateQuinticJoint(
+            start_counts,
+            target_counts,
+            options
+        );
 
+    if (trajectory.empty())
+    {
+        std::cerr
+            << "[MoveJ Quintic] Failed to generate trajectory.\n";
 
+        return false;
+    }
+
+    // 5. 执行轨迹
+    return ExecuteCountTrajectory(
+        trajectory,
+        position_tolerance_counts,
+        settle_cycles
+    );
+}
+
+//相对位置MOVEJ：五次多项式轨迹规划移动
+bool ParallelControl::MoveJRelativeQuintic(
+    const ThreePRR::TargetPose& delta,
+    int64_t trajectory_cycles,
+    int32_t position_tolerance_counts,
+    int settle_cycles
+)
+{
+    // 1. 获取当前末端位姿
+    ThreePRR::TargetPose current_pose = GetCurrentPose();
+
+    // 2. 当前位姿 + 相对增量 = 绝对目标位姿
+    ThreePRR::TargetPose target_pose{};
+    target_pose.xQ = current_pose.xQ + delta.xQ;
+
+    target_pose.yQ = current_pose.yQ + delta.yQ;
+
+    target_pose.phi = current_pose.phi + delta.phi;
+
+    // 3. 调用绝对运动函数
+    return MoveJAbsoluteQuintic(
+        target_pose,
+        trajectory_cycles,
+        position_tolerance_counts,
+        settle_cycles
+    );
+}
+//生成五次多项式轨迹规划的轨迹
+ParallelControl::ParallelTrajectoryPlan ParallelControl::BuildMoveJAbsoluteQuinticPlan(
+    const ThreePRR::TargetPose& target,
+    int64_t trajectory_cycles)
+{       
+    //结构体赋值
+    ParallelTrajectoryPlan plan{};
+    plan.side = side_;
+    plan.axis_indices = AxisIndices();
+
+     if (trajectory_cycles <= 0)
+    {
+        std::cerr
+            << "[MoveJ Plan] trajectory_cycles must be > 0.\n";
+        return plan;
+    }
+    ThreePRR& mechanism =SelectMechanism();
+
+    ThreePRR::JointPosition target_joint = mechanism.IK(target);
+
+    // 保存最终目标 rho，供 MultiParallelControl 做跨机构保护
+    plan.final_rho_mm = {
+        target_joint.rho1,
+        target_joint.rho2,
+        target_joint.rho3
+    };
+
+    trajectory::AxisCount3 target_counts = BuildTargetCountsFromPose(target);
+
+    ParallelEncoder current_encoder = GetCurrentEncoder();
+
+    trajectory::AxisCount3 start_counts{
+        current_encoder.axis1_encoder,
+        current_encoder.axis2_encoder,
+        current_encoder.axis3_encoder
+    };
+
+    trajectory::QuinticTrajectoryOptions options;
+    options.trajectory_cycles = trajectory_cycles;
+
+    plan.count_trajectory =
+        trajectory::CountTrajectoryGenerator::GenerateQuinticJoint(
+            start_counts,
+            target_counts,
+            options
+        );
+
+    if (plan.count_trajectory.empty())
+    {
+        std::cerr
+            << "[MoveJ Plan] Failed to generate quintic trajectory.\n";
+    }
+
+    return plan;
+
+}
+//生成五次多项式相对位移版本的规划轨迹
+ParallelControl::ParallelTrajectoryPlan ParallelControl::BuildMoveJRelativeQuinticPlan(
+    const ThreePRR::TargetPose& delta,
+    int64_t trajectory_cycles)
+{
+    if (trajectory_cycles <= 0)
+    {
+        std::cerr
+            << "[MoveJ Relative Plan] trajectory_cycles must be > 0.\n";
+
+        ParallelTrajectoryPlan empty_plan{};
+        empty_plan.side = side_;
+        empty_plan.axis_indices = SelectAxisIndices();
+        return empty_plan;
+    }
+
+    ThreePRR::TargetPose current_pose =GetCurrentPose();
+
+    ThreePRR::TargetPose target_pose{};
+    target_pose.xQ = current_pose.xQ + delta.xQ;
+
+    target_pose.yQ = current_pose.yQ + delta.yQ;
+
+    target_pose.phi = current_pose.phi + delta.phi;
+
+    return BuildMoveJAbsoluteQuinticPlan(
+        target_pose,
+        trajectory_cycles);
+}
 
 
 //电机轨迹执行层（只适合单并联调试）
@@ -511,7 +641,10 @@ bool ParallelControl::ExecuteCountTrajectory(
     return false;
 }
 
+std::array<int, 3> ParallelControl::AxisIndices() const{
 
+    return SelectAxisIndices();
+}
 
 
 

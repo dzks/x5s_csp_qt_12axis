@@ -37,6 +37,12 @@ set(KINEMATICS_SOURCES
 set(MOTOR_SOURCES
     src/Motor/Motor_Control.cpp
     src/Motor/Parallel_Control.cpp
+    src/Motor/Multi_Parallel_Control.cpp
+)
+
+# 轨迹规划代码
+set(TRAJECTORY
+    src/Trajectory/count_trajectory_generator.cpp
 )
 
 # Qt UI target. Supports Qt6 first, then Qt5.
@@ -67,6 +73,7 @@ add_executable(main_InitialPosition
     ${KINEMATICS_SOURCES}
     ${MOTOR_SOURCES}
     ${COMMON_SOURCES}
+    ${TRAJECTORY}
 )
 target_link_libraries(main_InitialPosition ethercat pthread)
 
@@ -75,5 +82,6 @@ add_executable(test
     ${KINEMATICS_SOURCES}
     ${COMMON_SOURCES}
     ${MOTOR_SOURCES}
+    ${TRAJECTORY}
 )
 target_link_libraries(test ethercat pthread)

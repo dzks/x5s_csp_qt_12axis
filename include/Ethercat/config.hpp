@@ -55,4 +55,6 @@ constexpr uint32_t kDcAssignActivate = 0x0300;
 // Status printing / GUI refresh helper.
 constexpr int kStatusPrintPeriodCycles = 500;
 
+// 机械保护距离
+constexpr double kMinSliderCenterGapMm = 60.0;
 }  // namespace config
