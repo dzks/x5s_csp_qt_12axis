@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
 project(x5s_igh_csp_qt_direct LANGUAGES CXX)
 
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -45,6 +49,16 @@ set(TRAJECTORY
     src/Trajectory/count_trajectory_generator.cpp
 )
 
+set(QT
+    src/QT/PlateShapeInitWindow.cpp
+    src/QT/PlateShapeView.cpp
+    src/QT/PlateShapeMotionWorker.cpp
+    include/QT/PlateShapeTypes.hpp
+    include/QT/PlateShapeInitWindow.hpp
+    include/QT/PlateShapeView.hpp
+    include/QT/PlateShapeMotionWorker.hpp
+)
+
 # Qt UI target. Supports Qt6 first, then Qt5.
 find_package(Qt6 COMPONENTS Widgets QUIET)
 if(Qt6_FOUND)
@@ -68,15 +82,7 @@ else()
     endif()
 endif()
 
-add_executable(main_InitialPosition
-    src/Main/main_InitialPosition.cpp
-    ${KINEMATICS_SOURCES}
-    ${MOTOR_SOURCES}
-    ${COMMON_SOURCES}
-    ${TRAJECTORY}
-)
-target_link_libraries(main_InitialPosition ethercat pthread)
-
+# 测试主程序
 add_executable(test
     src/Main/test.cpp
     ${KINEMATICS_SOURCES}
@@ -85,3 +91,27 @@ add_executable(test
     ${TRAJECTORY}
 )
 target_link_libraries(test ethercat pthread)
+
+# 初始板型构建QT程序
+add_executable(main_plateshapeInit_qt
+    src/QT/main_plateshapeInit_qt.cpp
+    ${QT}
+    ${COMMON_SOURCES}
+    ${MOTOR_SOURCES}
+    ${KINEMATICS_SOURCES}
+    ${TRAJECTORY}
+)
+
+target_include_directories(main_plateshapeInit_qt PRIVATE include)
+target_link_libraries(main_plateshapeInit_qt Qt5::Widgets ethercat pthread)
+
+
+# 测试初始板型主程序
+add_executable(InitialPosition
+    src/Main/InitialPosition.cpp
+    ${KINEMATICS_SOURCES}
+    ${COMMON_SOURCES}
+    ${MOTOR_SOURCES}
+    ${TRAJECTORY}
+)
+target_link_libraries(InitialPosition ethercat pthread)

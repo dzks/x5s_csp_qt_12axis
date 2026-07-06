@@ -85,16 +85,16 @@ int main(int argc, char* argv[]){
     const int64_t trajectory_cycles = 5000;
 
     ParallelControl::ParallelTrajectoryPlan upperleftplan =
-            upper_left_parallel.BuildMoveJAbsoluteQuinticPlan(upperlefttarget,trajectory_cycles);
+            upper_left_parallel.BuildMoveLAbsoluteQuinticPlan(upperlefttarget,trajectory_cycles);
         
     ParallelControl::ParallelTrajectoryPlan upperrightplan =
-            upper_right_parallel.BuildMoveJAbsoluteQuinticPlan(upperrighttarget,trajectory_cycles);
+            upper_right_parallel.BuildMoveLAbsoluteQuinticPlan(upperrighttarget,trajectory_cycles);
 
     ParallelControl::ParallelTrajectoryPlan lowerleftplan =
-            lower_left_parallel.BuildMoveJAbsoluteQuinticPlan(lowerlefttarget,trajectory_cycles);
+            lower_left_parallel.BuildMoveLAbsoluteQuinticPlan(lowerlefttarget,trajectory_cycles);
 
     ParallelControl::ParallelTrajectoryPlan lowerrightplan =
-            lower_right_parallel.BuildMoveJAbsoluteQuinticPlan(lowerrighttarget,trajectory_cycles);
+            lower_right_parallel.BuildMoveLAbsoluteQuinticPlan(lowerrighttarget,trajectory_cycles);
 
     std::vector<MultiParallelControl::ParallelTrajectoryPlan> plans;
     plans.push_back(upperleftplan);
